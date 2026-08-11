@@ -1,0 +1,66 @@
+name: Build ColorGrade BD
+
+on:
+  push:
+    branches: [ main, master, dev ]
+    tags:     [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (MC 1.21.1 / Java 21)
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Java 21 ────────────────────────────────────────────────────
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # ── 3. Cache Gradle dependencies ─────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ── 4. Make gradlew executable ───────────────────────────────────────────
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # ── 5. Build ─────────────────────────────────────────────────────────────
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2G"
+
+      # ── 6. Upload built JAR ──────────────────────────────────────────────────
+      - name: Upload mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColorGrade-BD-${{ github.ref_name }}
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── 7. Create GitHub Release on tag push ─────────────────────────────────
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/libs/*.jar
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

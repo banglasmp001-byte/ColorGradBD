@@ -1,0 +1,43 @@
+{
+  "modmenu.nameTranslation.colorgradebd": "ColorGrade BD",
+  "modmenu.descriptionTranslation.colorgradebd": "Client-side color grading and visual adjustment for Minecraft.",
+
+  "screen.colorgradebd.title":          "ColorGrade BD",
+  "screen.colorgradebd.select_element": "Add Element",
+  "screen.colorgradebd.color_picker":   "Color Picker",
+
+  "tab.colorgradebd.game_grading":     "Game Color Grading",
+  "tab.colorgradebd.element_grading":  "Element Grading",
+
+  "button.colorgradebd.enabled":        "Status: ENABLED",
+  "button.colorgradebd.disabled":       "Status: DISABLED",
+  "button.colorgradebd.reset":          "Reset",
+  "button.colorgradebd.reset_all":      "Reset All to Default",
+  "button.colorgradebd.reset_element":  "Reset Element",
+  "button.colorgradebd.add_element":    "Add Element",
+  "button.colorgradebd.edit":           "Edit",
+  "button.colorgradebd.delete":         "Delete",
+  "button.colorgradebd.add":            "Add",
+  "button.colorgradebd.color_picker":   "Color Tint...",
+
+  "slider.colorgradebd.brightness":    "Brightness",
+  "slider.colorgradebd.contrast":      "Contrast",
+  "slider.colorgradebd.saturation":    "Saturation",
+  "slider.colorgradebd.hue":           "Hue",
+  "slider.colorgradebd.sharpness":     "Sharpness",
+  "slider.colorgradebd.color_r":       "Color Red",
+  "slider.colorgradebd.color_g":       "Color Green",
+  "slider.colorgradebd.color_b":       "Color Blue",
+  "slider.colorgradebd.intensity":     "Intensity",
+  "slider.colorgradebd.gamma":         "Gamma",
+  "slider.colorgradebd.temperature":   "Temperature",
+  "slider.colorgradebd.vignette":      "Vignette",
+  "slider.colorgradebd.depth_effect":  "3D/Depth Effect",
+
+  "text.colorgradebd.no_elements":     "No elements configured. Click \"Add Element\" to begin.",
+  "text.colorgradebd.search":          "Search...",
+  "text.colorgradebd.search_hint":     "Search blocks and elements...",
+
+  "key.colorgradebd.open_gui":         "Open ColorGrade BD",
+  "category.colorgradebd":             "ColorGrade BD"
+}

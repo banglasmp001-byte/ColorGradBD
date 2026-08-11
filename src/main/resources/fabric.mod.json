@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "colorgradebd",
+  "version": "${version}",
+  "name": "ColorGrade BD",
+  "description": "Client-side color grading and visual adjustment mod for Minecraft.",
+  "authors": ["Ahmed"],
+  "contact": {
+    "homepage": "https://github.com/AhmedNotXGamer/ColorGradeBD",
+    "sources": "https://github.com/AhmedNotXGamer/ColorGradeBD"
+  },
+  "license": "MIT",
+  "icon": "assets/colorgradebd/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.ahmednotxgamer.colorgradebd.ColorGradeBD"
+    ],
+    "modmenu": [
+      "com.ahmednotxgamer.colorgradebd.client.modmenu.ModMenuIntegration"
+    ]
+  },
+  "mixins": [
+    "colorgradebd.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=21"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}

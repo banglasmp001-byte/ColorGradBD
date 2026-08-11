@@ -1,0 +1,29 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "one",
+        "dstrgb": "zero"
+    },
+    "vertex": "colorgradebd:colorgrade",
+    "fragment": "colorgradebd:colorgrade",
+    "attributes": [ "Position", "UV" ],
+    "samplers": [
+        { "name": "DiffuseSampler" }
+    ],
+    "uniforms": [
+        { "name": "ProjMat",     "type": "matrix4x4", "count": 16, "values": [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] },
+        { "name": "OutSize",     "type": "float",     "count": 2,  "values": [1.0, 1.0] },
+        { "name": "Brightness",  "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "Contrast",    "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "Saturation",  "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "HueShift",    "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "Sharpness",   "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "ColorR",      "type": "float",     "count": 1,  "values": [1.0] },
+        { "name": "ColorG",      "type": "float",     "count": 1,  "values": [1.0] },
+        { "name": "ColorB",      "type": "float",     "count": 1,  "values": [1.0] },
+        { "name": "Intensity",   "type": "float",     "count": 1,  "values": [1.0] },
+        { "name": "Gamma",       "type": "float",     "count": 1,  "values": [1.0] },
+        { "name": "Temperature", "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "Vignette",    "type": "float",     "count": 1,  "values": [0.0] }
+    ]
+}

@@ -1,0 +1,33 @@
+{
+    "targets": [
+        "swap"
+    ],
+    "passes": [
+        {
+            "name": "colorgradebd:colorgrade",
+            "intarget": "minecraft:main",
+            "outtarget": "swap",
+            "auxtargets": [],
+            "uniforms": [
+                { "name": "Brightness",   "values": [ 0.0 ] },
+                { "name": "Contrast",     "values": [ 0.0 ] },
+                { "name": "Saturation",   "values": [ 0.0 ] },
+                { "name": "HueShift",     "values": [ 0.0 ] },
+                { "name": "Sharpness",    "values": [ 0.0 ] },
+                { "name": "ColorR",       "values": [ 1.0 ] },
+                { "name": "ColorG",       "values": [ 1.0 ] },
+                { "name": "ColorB",       "values": [ 1.0 ] },
+                { "name": "Intensity",    "values": [ 1.0 ] },
+                { "name": "Gamma",        "values": [ 1.0 ] },
+                { "name": "Temperature",  "values": [ 0.0 ] },
+                { "name": "Vignette",     "values": [ 0.0 ] }
+            ]
+        },
+        {
+            "name": "colorgradebd:blit",
+            "intarget": "swap",
+            "outtarget": "minecraft:main",
+            "auxtargets": []
+        }
+    ]
+}
