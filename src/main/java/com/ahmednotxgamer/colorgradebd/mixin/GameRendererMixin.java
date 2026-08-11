@@ -7,14 +7,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/**
- * Injects into GameRenderer to notify our renderer when the window is resized,
- * allowing the post-effect processor to resize its framebuffers correctly.
- */
 @Mixin(GameRenderer.class)
 public class GameRendererMixin {
 
-    @Inject(method = "resize(II)V", at = @At("TAIL"))
+    @Inject(method = "onResized(II)V", at = @At("TAIL"), require = 0)
     private void colorgradebd_onResize(int width, int height, CallbackInfo ci) {
         ColorGradingRenderer.getInstance().onWindowResized(width, height);
     }

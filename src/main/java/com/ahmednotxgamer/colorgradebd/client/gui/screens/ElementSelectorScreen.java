@@ -59,7 +59,7 @@ public class ElementSelectorScreen extends Screen {
                 listX, 36, listW, 20,
                 Text.translatable("text.colorgradebd.search"));
         searchField.setMaxLength(64);
-        searchField.setPlaceholderText(Text.translatable("text.colorgradebd.search_hint"));
+        
         searchField.setChangedListener(this::onSearchChanged);
         addSelectableChild(searchField);
         setInitialFocus(searchField);

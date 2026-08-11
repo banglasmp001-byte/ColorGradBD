@@ -3,44 +3,25 @@ package com.ahmednotxgamer.colorgradebd.client.render;
 import com.ahmednotxgamer.colorgradebd.ColorGradeBD;
 import com.ahmednotxgamer.colorgradebd.config.ConfigManager;
 import com.ahmednotxgamer.colorgradebd.config.GlobalColorSettings;
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.Framebuffer;
 import net.minecraft.client.gl.PostEffectProcessor;
-import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/**
- * Manages the GPU-side post-processing pipeline for global color grading.
- *
- * Architecture:
- * - Uses Minecraft's built-in PostEffectProcessor (post-process shader chain).
- * - Applies the colorgradebd:post/colorgrade shader after world rendering.
- * - Settings are pushed as shader uniforms; the GPU does the color math.
- * - No CPU-side per-pixel processing.
- * - The pipeline is completely bypassed when the mod is disabled.
- * - The PostEffectProcessor is only (re)loaded when needed, not every frame.
- */
 @Environment(EnvType.CLIENT)
 public class ColorGradingRenderer {
 
     private static final ColorGradingRenderer INSTANCE = new ColorGradingRenderer();
-    private static final Logger LOGGER = LoggerFactory.getLogger("ColorGrade BD Renderer");
-
-    private static final Identifier SHADER_ID =
-            Identifier.of("colorgradebd", "post/colorgrade");
+    private static final Identifier SHADER_ID = Identifier.of("colorgradebd", "post/colorgrade");
 
     private PostEffectProcessor postEffect = null;
     private boolean shaderLoaded = false;
     private boolean shaderLoadFailed = false;
+    private int lastWidth = -1;
+    private int lastHeight = -1;
 
-    /** Track last-pushed settings to avoid redundant uniform uploads. */
     private float lastBrightness = Float.NaN;
     private float lastContrast   = Float.NaN;
     private float lastSaturation = Float.NaN;
@@ -56,154 +37,106 @@ public class ColorGradingRenderer {
 
     private ColorGradingRenderer() {}
 
-    public static ColorGradingRenderer getInstance() {
-        return INSTANCE;
-    }
+    public static ColorGradingRenderer getInstance() { return INSTANCE; }
 
     public void initialize() {
-        // Register to apply post-processing after world renders.
-        // HudRenderCallback fires after world + HUD renders, which gives us
-        // access to the finished framebuffer for post-processing.
-        HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
-            applyPostProcessing();
-        });
+        HudRenderCallback.EVENT.register((drawContext, tickDelta) -> applyPostProcessing());
     }
 
-    /**
-     * Called each rendered frame. Applies or bypasses grading based on config.
-     * Safe to call every frame: returns immediately if not needed.
-     */
     public void applyPostProcessing() {
         GlobalColorSettings settings = ConfigManager.getInstance().getGlobal();
-
         if (!settings.enabled) {
-            // Mod disabled — unload shader if it was loaded, skip processing
-            if (shaderLoaded) {
-                unloadShader();
-            }
+            if (shaderLoaded) unloadShader();
             return;
         }
-
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null || mc.getWindow() == null) return;
 
-        // Lazy-load shader on first use or after window resize
-        if (!shaderLoaded && !shaderLoadFailed) {
-            loadShader(mc);
-        }
+        int w = mc.getWindow().getFramebufferWidth();
+        int h = mc.getWindow().getFramebufferHeight();
 
+        if (!shaderLoaded && !shaderLoadFailed) {
+            loadShader(mc, w, h);
+        }
         if (!shaderLoaded || postEffect == null) return;
 
-        // Only push uniforms if settings changed (avoids redundant GPU uploads)
-        pushUniforms(settings, mc);
+        if (w != lastWidth || h != lastHeight) {
+            onWindowResized(w, h);
+        }
 
-        // Resize to current framebuffer if needed
-        Framebuffer fb = mc.getFramebuffer();
-        postEffect.render(fb, mc.getFramebuffer(), mc.getFramebuffer(),
-                mc.getRenderTickCounter());
+        pushUniforms(settings);
+        postEffect.render(mc.getRenderTickCounter().getLastFrameDuration());
     }
 
-    private void loadShader(MinecraftClient mc) {
+    private void loadShader(MinecraftClient mc, int w, int h) {
         try {
+            if (postEffect != null) { postEffect.close(); postEffect = null; }
+            postEffect = PostEffectProcessor.loadEffect(
+                    mc.getResourceManager(), SHADER_ID,
+                    mc.getFramebuffer(), null);
             if (postEffect != null) {
-                postEffect.close();
-                postEffect = null;
-            }
-            postEffect = mc.loadPostEffect(SHADER_ID,
-                    java.util.Set.of(mc.getFramebuffer().getColorAttachment()));
-            if (postEffect != null) {
-                postEffect.setUniformValues("colorgradebd:main");
-                int w = mc.getWindow().getFramebufferWidth();
-                int h = mc.getWindow().getFramebufferHeight();
-                postEffect.setSize(w, h);
+                lastWidth  = w;
+                lastHeight = h;
                 shaderLoaded = true;
                 shaderLoadFailed = false;
-                LOGGER.info("[ColorGrade BD] Post-process shader loaded ({}x{})", w, h);
+                ColorGradeBD.LOGGER.info("[ColorGrade BD] Shader loaded ({}x{})", w, h);
             }
         } catch (Exception e) {
             shaderLoadFailed = true;
             shaderLoaded = false;
-            LOGGER.error("[ColorGrade BD] Failed to load post-process shader: {}. " +
-                    "Color grading will be unavailable.", e.getMessage());
+            ColorGradeBD.LOGGER.error("[ColorGrade BD] Shader load failed: {}", e.getMessage());
         }
     }
 
     private void unloadShader() {
-        if (postEffect != null) {
-            postEffect.close();
-            postEffect = null;
-        }
+        if (postEffect != null) { postEffect.close(); postEffect = null; }
         shaderLoaded = false;
         resetCachedUniforms();
-        LOGGER.debug("[ColorGrade BD] Post-process shader unloaded (mod disabled).");
     }
 
-    /** Push shader uniforms if any setting changed. */
-    private void pushUniforms(GlobalColorSettings s, MinecraftClient mc) {
+    private void pushUniforms(GlobalColorSettings s) {
         if (postEffect == null) return;
-
-        boolean changed = s.brightness   != lastBrightness
-                       || s.contrast     != lastContrast
-                       || s.saturation   != lastSaturation
-                       || s.hue          != lastHue
-                       || s.sharpness    != lastSharpness
-                       || s.colorR       != lastColorR
-                       || s.colorG       != lastColorG
-                       || s.colorB       != lastColorB
-                       || s.intensity    != lastIntensity
-                       || s.gamma        != lastGamma
-                       || s.temperature  != lastTemperature
-                       || s.vignette     != lastVignette;
-
+        boolean changed = s.brightness != lastBrightness || s.contrast != lastContrast
+                || s.saturation != lastSaturation || s.hue != lastHue
+                || s.sharpness != lastSharpness || s.colorR != lastColorR
+                || s.colorG != lastColorG || s.colorB != lastColorB
+                || s.intensity != lastIntensity || s.gamma != lastGamma
+                || s.temperature != lastTemperature || s.vignette != lastVignette;
         if (!changed) return;
 
-        // Cache new values
-        lastBrightness  = s.brightness;
-        lastContrast    = s.contrast;
-        lastSaturation  = s.saturation;
-        lastHue         = s.hue;
-        lastSharpness   = s.sharpness;
-        lastColorR      = s.colorR;
-        lastColorG      = s.colorG;
-        lastColorB      = s.colorB;
-        lastIntensity   = s.intensity;
-        lastGamma       = s.gamma;
-        lastTemperature = s.temperature;
-        lastVignette    = s.vignette;
+        lastBrightness = s.brightness; lastContrast = s.contrast;
+        lastSaturation = s.saturation; lastHue = s.hue;
+        lastSharpness  = s.sharpness;  lastColorR = s.colorR;
+        lastColorG     = s.colorG;     lastColorB = s.colorB;
+        lastIntensity  = s.intensity;  lastGamma = s.gamma;
+        lastTemperature = s.temperature; lastVignette = s.vignette;
 
-        // Push to shader via PostEffectProcessor pass uniforms
         try {
-            var passes = postEffect.getPasses();
-            if (passes != null && !passes.isEmpty()) {
-                var pass = passes.getFirst();
-                setUniformIfPresent(pass, "Brightness",   s.brightness);
-                setUniformIfPresent(pass, "Contrast",     s.contrast);
-                setUniformIfPresent(pass, "Saturation",   s.saturation);
-                setUniformIfPresent(pass, "HueShift",     s.hue / 180.0f); // normalize
-                setUniformIfPresent(pass, "Sharpness",    s.sharpness);
-                setUniformIfPresent(pass, "ColorR",       s.colorR);
-                setUniformIfPresent(pass, "ColorG",       s.colorG);
-                setUniformIfPresent(pass, "ColorB",       s.colorB);
-                setUniformIfPresent(pass, "Intensity",    s.intensity);
-                setUniformIfPresent(pass, "Gamma",        s.gamma);
-                setUniformIfPresent(pass, "Temperature",  s.temperature);
-                setUniformIfPresent(pass, "Vignette",     s.vignette);
-            }
+            postEffect.getPrograms().forEach(pass -> {
+                trySetUniform(pass, "Brightness",   s.brightness);
+                trySetUniform(pass, "Contrast",     s.contrast);
+                trySetUniform(pass, "Saturation",   s.saturation);
+                trySetUniform(pass, "HueShift",     s.hue / 180.0f);
+                trySetUniform(pass, "Sharpness",    s.sharpness);
+                trySetUniform(pass, "ColorR",       s.colorR);
+                trySetUniform(pass, "ColorG",       s.colorG);
+                trySetUniform(pass, "ColorB",       s.colorB);
+                trySetUniform(pass, "Intensity",    s.intensity);
+                trySetUniform(pass, "Gamma",        s.gamma);
+                trySetUniform(pass, "Temperature",  s.temperature);
+                trySetUniform(pass, "Vignette",     s.vignette);
+            });
         } catch (Exception e) {
-            LOGGER.debug("[ColorGrade BD] Could not push shader uniforms: {}", e.getMessage());
+            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Uniform push error: {}", e.getMessage());
         }
     }
 
-    private void setUniformIfPresent(net.minecraft.client.gl.PostEffectPass pass,
-                                     String name, float value) {
+    private void trySetUniform(net.minecraft.client.gl.PostEffectPass pass,
+                               String name, float value) {
         try {
-            var uniform = pass.getProgram().getUniform(name);
-            if (uniform != null) {
-                uniform.set(value);
-            }
-        } catch (Exception ignored) {
-            // Uniform may not exist in all shader variants; silently skip
-        }
+            var u = pass.getProgram().getUniformByName(name);
+            if (u != null) u.set(value);
+        } catch (Exception ignored) {}
     }
 
     private void resetCachedUniforms() {
@@ -212,24 +145,23 @@ public class ColorGradingRenderer {
         lastIntensity  = lastGamma    = lastTemperature = lastVignette = Float.NaN;
     }
 
-    /** Call after window resize so the shader resizes too. */
     public void onWindowResized(int width, int height) {
+        lastWidth  = width;
+        lastHeight = height;
         if (shaderLoaded && postEffect != null) {
             try {
-                postEffect.setSize(width, height);
+                MinecraftClient mc = MinecraftClient.getInstance();
+                if (mc != null) {
+                    unloadShader();
+                    shaderLoadFailed = false;
+                }
             } catch (Exception e) {
-                LOGGER.debug("[ColorGrade BD] Shader resize failed, will reload: {}", e.getMessage());
-                unloadShader();
+                ColorGradeBD.LOGGER.debug("[ColorGrade BD] Resize error: {}", e.getMessage());
             }
         }
     }
 
-    /** Called when the mod settings are saved — force a uniform re-push next frame. */
-    public void markDirty() {
-        resetCachedUniforms();
-    }
-
-    public boolean isShaderLoaded()     { return shaderLoaded; }
-    public boolean isShaderLoadFailed() { return shaderLoadFailed; }
-    public void resetShaderFailFlag()   { shaderLoadFailed = false; }
+    public void markDirty()           { resetCachedUniforms(); }
+    public boolean isShaderLoaded()   { return shaderLoaded; }
+    public void resetShaderFailFlag() { shaderLoadFailed = false; }
 }

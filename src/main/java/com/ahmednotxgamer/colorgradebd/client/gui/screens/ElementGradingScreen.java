@@ -189,9 +189,9 @@ public class ElementGradingScreen {
     }
 
     /** Add all widgets from this panel to the parent screen. */
-    public void addWidgetsTo(Screen screen) {
+    public void addWidgetsTo(WidgetHolder screen) {
         for (var w : widgets) {
-            screen.addDrawableChild(w);
+            screen.addWidget(w);
         }
     }
 
