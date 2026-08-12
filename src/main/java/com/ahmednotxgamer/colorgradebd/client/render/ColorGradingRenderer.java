@@ -7,10 +7,14 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.PostEffectPass;
 import net.minecraft.client.gl.PostEffectProcessor;
 import net.minecraft.util.Identifier;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.Collections;
+import java.util.List;
 
 @Environment(EnvType.CLIENT)
 public class ColorGradingRenderer {
@@ -18,11 +22,30 @@ public class ColorGradingRenderer {
     private static final ColorGradingRenderer INSTANCE = new ColorGradingRenderer();
     private static final Identifier SHADER_ID = Identifier.of("colorgradebd", "post/colorgrade");
 
-    private PostEffectProcessor postEffect = null;
-    private boolean shaderLoaded    = false;
-    private boolean shaderLoadFailed = false;
-    private int lastWidth  = -1;
-    private int lastHeight = -1;
+    // Cached reflection field for PostEffectProcessor.passes
+    private static Field passesField = null;
+
+    static {
+        // Find the passes field once at class-load time
+        for (Field f : PostEffectProcessor.class.getDeclaredFields()) {
+            if (List.class.isAssignableFrom(f.getType())) {
+                try {
+                    f.setAccessible(true);
+                    passesField = f;
+                    ColorGradeBD.LOGGER.info("[ColorGrade BD] Found passes field: {}", f.getName());
+                    break;
+                } catch (Exception e) {
+                    ColorGradeBD.LOGGER.warn("[ColorGrade BD] Could not access passes field: {}", e.getMessage());
+                }
+            }
+        }
+    }
+
+    private PostEffectProcessor postEffect   = null;
+    private boolean shaderLoaded             = false;
+    private boolean shaderLoadFailed         = false;
+    private int lastWidth                    = -1;
+    private int lastHeight                   = -1;
 
     private float lastBrightness  = Float.NaN;
     private float lastContrast    = Float.NaN;
@@ -99,45 +122,60 @@ public class ColorGradingRenderer {
         resetCachedUniforms();
     }
 
-    private void pushUniforms(GlobalColorSettings s) {
-        if (postEffect == null) return;
-        boolean changed = s.brightness != lastBrightness || s.contrast != lastContrast
-                || s.saturation != lastSaturation || s.hue != lastHue
-                || s.sharpness != lastSharpness || s.colorR != lastColorR
-                || s.colorG != lastColorG || s.colorB != lastColorB
-                || s.intensity != lastIntensity || s.gamma != lastGamma
-                || s.temperature != lastTemperature || s.vignette != lastVignette;
-        if (!changed) return;
-
-        lastBrightness = s.brightness; lastContrast = s.contrast;
-        lastSaturation = s.saturation; lastHue = s.hue;
-        lastSharpness = s.sharpness; lastColorR = s.colorR;
-        lastColorG = s.colorG; lastColorB = s.colorB;
-        lastIntensity = s.intensity; lastGamma = s.gamma;
-        lastTemperature = s.temperature; lastVignette = s.vignette;
-
+    @SuppressWarnings("unchecked")
+    private List<PostEffectPass> getPasses() {
+        if (postEffect == null || passesField == null) return Collections.emptyList();
         try {
-            for (var pass : postEffect.passes) {
-                trySetUniform(pass, "Brightness",   s.brightness);
-                trySetUniform(pass, "Contrast",     s.contrast);
-                trySetUniform(pass, "Saturation",   s.saturation);
-                trySetUniform(pass, "HueShift",     s.hue / 180.0f);
-                trySetUniform(pass, "Sharpness",    s.sharpness);
-                trySetUniform(pass, "ColorR",       s.colorR);
-                trySetUniform(pass, "ColorG",       s.colorG);
-                trySetUniform(pass, "ColorB",       s.colorB);
-                trySetUniform(pass, "Intensity",    s.intensity);
-                trySetUniform(pass, "Gamma",        s.gamma);
-                trySetUniform(pass, "Temperature",  s.temperature);
-                trySetUniform(pass, "Vignette",     s.vignette);
+            Object val = passesField.get(postEffect);
+            if (val instanceof List<?> list) {
+                return (List<PostEffectPass>) list;
             }
         } catch (Exception e) {
-            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Uniform push skipped: {}", e.getMessage());
+            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Could not get passes: {}", e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    private void pushUniforms(GlobalColorSettings s) {
+        if (postEffect == null) return;
+        boolean changed = s.brightness   != lastBrightness
+                       || s.contrast     != lastContrast
+                       || s.saturation   != lastSaturation
+                       || s.hue          != lastHue
+                       || s.sharpness    != lastSharpness
+                       || s.colorR       != lastColorR
+                       || s.colorG       != lastColorG
+                       || s.colorB       != lastColorB
+                       || s.intensity    != lastIntensity
+                       || s.gamma        != lastGamma
+                       || s.temperature  != lastTemperature
+                       || s.vignette     != lastVignette;
+        if (!changed) return;
+
+        lastBrightness  = s.brightness;  lastContrast    = s.contrast;
+        lastSaturation  = s.saturation;  lastHue         = s.hue;
+        lastSharpness   = s.sharpness;   lastColorR      = s.colorR;
+        lastColorG      = s.colorG;      lastColorB      = s.colorB;
+        lastIntensity   = s.intensity;   lastGamma       = s.gamma;
+        lastTemperature = s.temperature; lastVignette    = s.vignette;
+
+        for (PostEffectPass pass : getPasses()) {
+            trySetUniform(pass, "Brightness",   s.brightness);
+            trySetUniform(pass, "Contrast",     s.contrast);
+            trySetUniform(pass, "Saturation",   s.saturation);
+            trySetUniform(pass, "HueShift",     s.hue / 180.0f);
+            trySetUniform(pass, "Sharpness",    s.sharpness);
+            trySetUniform(pass, "ColorR",       s.colorR);
+            trySetUniform(pass, "ColorG",       s.colorG);
+            trySetUniform(pass, "ColorB",       s.colorB);
+            trySetUniform(pass, "Intensity",    s.intensity);
+            trySetUniform(pass, "Gamma",        s.gamma);
+            trySetUniform(pass, "Temperature",  s.temperature);
+            trySetUniform(pass, "Vignette",     s.vignette);
         }
     }
 
-    private void trySetUniform(net.minecraft.client.gl.PostEffectPass pass,
-                               String name, float value) {
+    private void trySetUniform(PostEffectPass pass, String name, float value) {
         try {
             var u = pass.getProgram().getUniformByName(name);
             if (u != null) u.set(value);
