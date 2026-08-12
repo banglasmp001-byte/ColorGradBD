@@ -3,204 +3,130 @@ package com.ahmednotxgamer.colorgradebd.client.render;
 import com.ahmednotxgamer.colorgradebd.ColorGradeBD;
 import com.ahmednotxgamer.colorgradebd.config.ConfigManager;
 import com.ahmednotxgamer.colorgradebd.config.GlobalColorSettings;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gl.PostEffectPass;
-import net.minecraft.client.gl.PostEffectProcessor;
-import net.minecraft.util.Identifier;
-
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.util.Collections;
-import java.util.List;
 
 @Environment(EnvType.CLIENT)
 public class ColorGradingRenderer {
 
     private static final ColorGradingRenderer INSTANCE = new ColorGradingRenderer();
-    private static final Identifier SHADER_ID = Identifier.of("colorgradebd", "post/colorgrade");
-
-    // Cached reflection field for PostEffectProcessor.passes
-    private static Field passesField = null;
-
-    static {
-        // Find the passes field once at class-load time
-        for (Field f : PostEffectProcessor.class.getDeclaredFields()) {
-            if (List.class.isAssignableFrom(f.getType())) {
-                try {
-                    f.setAccessible(true);
-                    passesField = f;
-                    ColorGradeBD.LOGGER.info("[ColorGrade BD] Found passes field: {}", f.getName());
-                    break;
-                } catch (Exception e) {
-                    ColorGradeBD.LOGGER.warn("[ColorGrade BD] Could not access passes field: {}", e.getMessage());
-                }
-            }
-        }
-    }
-
-    private PostEffectProcessor postEffect   = null;
-    private boolean shaderLoaded             = false;
-    private boolean shaderLoadFailed         = false;
-    private int lastWidth                    = -1;
-    private int lastHeight                   = -1;
-
-    private float lastBrightness  = Float.NaN;
-    private float lastContrast    = Float.NaN;
-    private float lastSaturation  = Float.NaN;
-    private float lastHue         = Float.NaN;
-    private float lastSharpness   = Float.NaN;
-    private float lastColorR      = Float.NaN;
-    private float lastColorG      = Float.NaN;
-    private float lastColorB      = Float.NaN;
-    private float lastIntensity   = Float.NaN;
-    private float lastGamma       = Float.NaN;
-    private float lastTemperature = Float.NaN;
-    private float lastVignette    = Float.NaN;
 
     private ColorGradingRenderer() {}
 
     public static ColorGradingRenderer getInstance() { return INSTANCE; }
 
     public void initialize() {
-        HudRenderCallback.EVENT.register((drawContext, tickDelta) -> applyPostProcessing());
+        HudRenderCallback.EVENT.register(this::onHudRender);
     }
 
-    public void applyPostProcessing() {
-        GlobalColorSettings settings = ConfigManager.getInstance().getGlobal();
-        if (!settings.enabled) {
-            if (shaderLoaded) unloadShader();
-            return;
-        }
+    private void onHudRender(net.minecraft.client.gui.DrawContext context, float tickDelta) {
+        GlobalColorSettings s = ConfigManager.getInstance().getGlobal();
+        if (!s.enabled) return;
+
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc == null || mc.getWindow() == null) return;
+        if (mc == null) return;
 
-        int w = mc.getWindow().getFramebufferWidth();
-        int h = mc.getWindow().getFramebufferHeight();
+        int sw = mc.getWindow().getScaledWidth();
+        int sh = mc.getWindow().getScaledHeight();
 
-        if (!shaderLoaded && !shaderLoadFailed) {
-            loadShader(mc, w, h);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+
+        // Brightness
+        if (s.brightness > 0.005f) {
+            int a = (int)(s.brightness * 180 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(255, 255, 255, Math.min(200, a)));
+        } else if (s.brightness < -0.005f) {
+            int a = (int)(-s.brightness * 200 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(0, 0, 0, Math.min(220, a)));
         }
-        if (!shaderLoaded || postEffect == null) return;
 
-        if (w != lastWidth || h != lastHeight) {
-            onWindowResized(w, h);
-            return;
+        // Temperature
+        if (s.temperature > 0.02f) {
+            int a = (int)(s.temperature * 60 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(255, 160, 50, Math.min(80, a)));
+        } else if (s.temperature < -0.02f) {
+            int a = (int)(-s.temperature * 60 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(50, 120, 255, Math.min(80, a)));
         }
 
-        pushUniforms(settings);
-        postEffect.render(mc.getRenderTickCounter().getLastFrameDuration());
-    }
-
-    private void loadShader(MinecraftClient mc, int w, int h) {
-        try {
-            if (postEffect != null) { postEffect.close(); postEffect = null; }
-            postEffect = new PostEffectProcessor(
-                    mc.getTextureManager(),
-                    mc.getResourceManager(),
-                    mc.getFramebuffer(),
-                    SHADER_ID
-            );
-            postEffect.setupDimensions(w, h);
-            lastWidth = w; lastHeight = h;
-            shaderLoaded = true; shaderLoadFailed = false;
-            ColorGradeBD.LOGGER.info("[ColorGrade BD] Shader loaded ({}x{})", w, h);
-        } catch (IOException e) {
-            shaderLoadFailed = true; shaderLoaded = false;
-            ColorGradeBD.LOGGER.error("[ColorGrade BD] Shader load failed: {}", e.getMessage());
-        } catch (Exception e) {
-            shaderLoadFailed = true; shaderLoaded = false;
-            ColorGradeBD.LOGGER.error("[ColorGrade BD] Shader error: {}", e.getMessage());
+        // Color tint RGB
+        float tintDiff = Math.abs(s.colorR - 1f) + Math.abs(s.colorG - 1f) + Math.abs(s.colorB - 1f);
+        if (tintDiff > 0.02f) {
+            int tr = s.colorR > 1f ? 255 : (int)(s.colorR * 255);
+            int tg = s.colorG > 1f ? 255 : (int)(s.colorG * 255);
+            int tb = s.colorB > 1f ? 255 : (int)(s.colorB * 255);
+            int ta = (int)(tintDiff * 40f * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(tr, tg, tb, Math.min(80, ta)));
         }
-    }
 
-    private void unloadShader() {
-        if (postEffect != null) { postEffect.close(); postEffect = null; }
-        shaderLoaded = false;
-        resetCachedUniforms();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<PostEffectPass> getPasses() {
-        if (postEffect == null || passesField == null) return Collections.emptyList();
-        try {
-            Object val = passesField.get(postEffect);
-            if (val instanceof List<?> list) {
-                return (List<PostEffectPass>) list;
-            }
-        } catch (Exception e) {
-            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Could not get passes: {}", e.getMessage());
+        // Saturation reduce = grey overlay
+        if (s.saturation < -0.02f) {
+            int a = (int)(-s.saturation * 160 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(128, 128, 128, Math.min(180, a)));
         }
-        return Collections.emptyList();
-    }
 
-    private void pushUniforms(GlobalColorSettings s) {
-        if (postEffect == null) return;
-        boolean changed = s.brightness   != lastBrightness
-                       || s.contrast     != lastContrast
-                       || s.saturation   != lastSaturation
-                       || s.hue          != lastHue
-                       || s.sharpness    != lastSharpness
-                       || s.colorR       != lastColorR
-                       || s.colorG       != lastColorG
-                       || s.colorB       != lastColorB
-                       || s.intensity    != lastIntensity
-                       || s.gamma        != lastGamma
-                       || s.temperature  != lastTemperature
-                       || s.vignette     != lastVignette;
-        if (!changed) return;
-
-        lastBrightness  = s.brightness;  lastContrast    = s.contrast;
-        lastSaturation  = s.saturation;  lastHue         = s.hue;
-        lastSharpness   = s.sharpness;   lastColorR      = s.colorR;
-        lastColorG      = s.colorG;      lastColorB      = s.colorB;
-        lastIntensity   = s.intensity;   lastGamma       = s.gamma;
-        lastTemperature = s.temperature; lastVignette    = s.vignette;
-
-        for (PostEffectPass pass : getPasses()) {
-            trySetUniform(pass, "Brightness",   s.brightness);
-            trySetUniform(pass, "Contrast",     s.contrast);
-            trySetUniform(pass, "Saturation",   s.saturation);
-            trySetUniform(pass, "HueShift",     s.hue / 180.0f);
-            trySetUniform(pass, "Sharpness",    s.sharpness);
-            trySetUniform(pass, "ColorR",       s.colorR);
-            trySetUniform(pass, "ColorG",       s.colorG);
-            trySetUniform(pass, "ColorB",       s.colorB);
-            trySetUniform(pass, "Intensity",    s.intensity);
-            trySetUniform(pass, "Gamma",        s.gamma);
-            trySetUniform(pass, "Temperature",  s.temperature);
-            trySetUniform(pass, "Vignette",     s.vignette);
-        }
-    }
-
-    private void trySetUniform(PostEffectPass pass, String name, float value) {
-        try {
-            var u = pass.getProgram().getUniformByName(name);
-            if (u != null) u.set(value);
-        } catch (Exception ignored) {}
-    }
-
-    private void resetCachedUniforms() {
-        lastBrightness = lastContrast = lastSaturation = lastHue =
-        lastSharpness  = lastColorR   = lastColorG    = lastColorB =
-        lastIntensity  = lastGamma    = lastTemperature = lastVignette = Float.NaN;
-    }
-
-    public void onWindowResized(int width, int height) {
-        if (shaderLoaded && postEffect != null) {
-            try {
-                postEffect.setupDimensions(width, height);
-                lastWidth = width; lastHeight = height;
-            } catch (Exception e) {
-                unloadShader();
-                shaderLoadFailed = false;
+        // Vignette
+        if (s.vignette > 0.01f) {
+            int steps = 12;
+            int border = (int)(Math.min(sw, sh) * 0.5f * s.vignette);
+            for (int i = 0; i < steps; i++) {
+                float t = (float) i / steps;
+                int a = (int)(s.vignette * 200 * s.intensity * t * t);
+                int thick = Math.max(1, border / steps);
+                int p = i * thick;
+                int color = toArgb(0, 0, 0, Math.min(230, a));
+                context.fill(p, p, sw - p, p + thick, color);
+                context.fill(p, sh - p - thick, sw - p, sh - p, color);
+                context.fill(p, p, p + thick, sh - p, color);
+                context.fill(sw - p - thick, p, sw - p, sh - p, color);
             }
         }
+
+        // Contrast low = grey wash
+        if (s.contrast < -0.02f) {
+            int a = (int)(-s.contrast * 80 * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(128, 128, 128, Math.min(100, a)));
+        }
+
+        // Hue tint
+        if (Math.abs(s.hue) > 5f) {
+            float[] rgb = hueToRgb(s.hue);
+            int a = (int)(Math.abs(s.hue) / 180f * 45f * s.intensity);
+            context.fill(0, 0, sw, sh, toArgb(
+                    (int)(rgb[0]*255), (int)(rgb[1]*255), (int)(rgb[2]*255), Math.min(55, a)));
+        }
+
+        RenderSystem.disableBlend();
     }
 
-    public void markDirty()           { resetCachedUniforms(); }
-    public boolean isShaderLoaded()   { return shaderLoaded; }
-    public void resetShaderFailFlag() { shaderLoadFailed = false; }
+    private int toArgb(int r, int g, int b, int a) {
+        return (Math.min(255,Math.max(0,a)) << 24)
+             | (Math.min(255,Math.max(0,r)) << 16)
+             | (Math.min(255,Math.max(0,g)) << 8)
+             |  Math.min(255,Math.max(0,b));
+    }
+
+    private float[] hueToRgb(float deg) {
+        float h = ((deg % 360) + 360) % 360;
+        int i = (int)(h / 60f) % 6;
+        float f = h/60f - (int)(h/60f);
+        float v=1f,p=0f,q=1f-f,t=f;
+        return switch(i){
+            case 0->new float[]{v,t,p};
+            case 1->new float[]{q,v,p};
+            case 2->new float[]{p,v,t};
+            case 3->new float[]{p,q,v};
+            case 4->new float[]{t,p,v};
+            default->new float[]{v,p,q};
+        };
+    }
+
+    public void markDirty() {}
+    public boolean isShaderLoaded() { return true; }
+    public void resetShaderFailFlag() {}
+    public void onWindowResized(int w, int h) {}
 }
