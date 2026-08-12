@@ -10,6 +10,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.PostEffectProcessor;
 import net.minecraft.util.Identifier;
 
+import java.io.IOException;
+
 @Environment(EnvType.CLIENT)
 public class ColorGradingRenderer {
 
@@ -17,23 +19,23 @@ public class ColorGradingRenderer {
     private static final Identifier SHADER_ID = Identifier.of("colorgradebd", "post/colorgrade");
 
     private PostEffectProcessor postEffect = null;
-    private boolean shaderLoaded = false;
+    private boolean shaderLoaded    = false;
     private boolean shaderLoadFailed = false;
-    private int lastWidth = -1;
+    private int lastWidth  = -1;
     private int lastHeight = -1;
 
-    private float lastBrightness = Float.NaN;
-    private float lastContrast   = Float.NaN;
-    private float lastSaturation = Float.NaN;
-    private float lastHue        = Float.NaN;
-    private float lastSharpness  = Float.NaN;
-    private float lastColorR     = Float.NaN;
-    private float lastColorG     = Float.NaN;
-    private float lastColorB     = Float.NaN;
-    private float lastIntensity  = Float.NaN;
-    private float lastGamma      = Float.NaN;
+    private float lastBrightness  = Float.NaN;
+    private float lastContrast    = Float.NaN;
+    private float lastSaturation  = Float.NaN;
+    private float lastHue         = Float.NaN;
+    private float lastSharpness   = Float.NaN;
+    private float lastColorR      = Float.NaN;
+    private float lastColorG      = Float.NaN;
+    private float lastColorB      = Float.NaN;
+    private float lastIntensity   = Float.NaN;
+    private float lastGamma       = Float.NaN;
     private float lastTemperature = Float.NaN;
-    private float lastVignette   = Float.NaN;
+    private float lastVignette    = Float.NaN;
 
     private ColorGradingRenderer() {}
 
@@ -62,6 +64,7 @@ public class ColorGradingRenderer {
 
         if (w != lastWidth || h != lastHeight) {
             onWindowResized(w, h);
+            return;
         }
 
         pushUniforms(settings);
@@ -71,20 +74,22 @@ public class ColorGradingRenderer {
     private void loadShader(MinecraftClient mc, int w, int h) {
         try {
             if (postEffect != null) { postEffect.close(); postEffect = null; }
-            postEffect = PostEffectProcessor.loadEffect(
-                    mc.getResourceManager(), SHADER_ID,
-                    mc.getFramebuffer(), null);
-            if (postEffect != null) {
-                lastWidth  = w;
-                lastHeight = h;
-                shaderLoaded = true;
-                shaderLoadFailed = false;
-                ColorGradeBD.LOGGER.info("[ColorGrade BD] Shader loaded ({}x{})", w, h);
-            }
-        } catch (Exception e) {
-            shaderLoadFailed = true;
-            shaderLoaded = false;
+            postEffect = new PostEffectProcessor(
+                    mc.getTextureManager(),
+                    mc.getResourceManager(),
+                    mc.getFramebuffer(),
+                    SHADER_ID
+            );
+            postEffect.setupDimensions(w, h);
+            lastWidth = w; lastHeight = h;
+            shaderLoaded = true; shaderLoadFailed = false;
+            ColorGradeBD.LOGGER.info("[ColorGrade BD] Shader loaded ({}x{})", w, h);
+        } catch (IOException e) {
+            shaderLoadFailed = true; shaderLoaded = false;
             ColorGradeBD.LOGGER.error("[ColorGrade BD] Shader load failed: {}", e.getMessage());
+        } catch (Exception e) {
+            shaderLoadFailed = true; shaderLoaded = false;
+            ColorGradeBD.LOGGER.error("[ColorGrade BD] Shader error: {}", e.getMessage());
         }
     }
 
@@ -106,13 +111,13 @@ public class ColorGradingRenderer {
 
         lastBrightness = s.brightness; lastContrast = s.contrast;
         lastSaturation = s.saturation; lastHue = s.hue;
-        lastSharpness  = s.sharpness;  lastColorR = s.colorR;
-        lastColorG     = s.colorG;     lastColorB = s.colorB;
-        lastIntensity  = s.intensity;  lastGamma = s.gamma;
+        lastSharpness = s.sharpness; lastColorR = s.colorR;
+        lastColorG = s.colorG; lastColorB = s.colorB;
+        lastIntensity = s.intensity; lastGamma = s.gamma;
         lastTemperature = s.temperature; lastVignette = s.vignette;
 
         try {
-            postEffect.getPrograms().forEach(pass -> {
+            for (var pass : postEffect.passes) {
                 trySetUniform(pass, "Brightness",   s.brightness);
                 trySetUniform(pass, "Contrast",     s.contrast);
                 trySetUniform(pass, "Saturation",   s.saturation);
@@ -125,9 +130,9 @@ public class ColorGradingRenderer {
                 trySetUniform(pass, "Gamma",        s.gamma);
                 trySetUniform(pass, "Temperature",  s.temperature);
                 trySetUniform(pass, "Vignette",     s.vignette);
-            });
+            }
         } catch (Exception e) {
-            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Uniform push error: {}", e.getMessage());
+            ColorGradeBD.LOGGER.debug("[ColorGrade BD] Uniform push skipped: {}", e.getMessage());
         }
     }
 
@@ -146,17 +151,13 @@ public class ColorGradingRenderer {
     }
 
     public void onWindowResized(int width, int height) {
-        lastWidth  = width;
-        lastHeight = height;
         if (shaderLoaded && postEffect != null) {
             try {
-                MinecraftClient mc = MinecraftClient.getInstance();
-                if (mc != null) {
-                    unloadShader();
-                    shaderLoadFailed = false;
-                }
+                postEffect.setupDimensions(width, height);
+                lastWidth = width; lastHeight = height;
             } catch (Exception e) {
-                ColorGradeBD.LOGGER.debug("[ColorGrade BD] Resize error: {}", e.getMessage());
+                unloadShader();
+                shaderLoadFailed = false;
             }
         }
     }
